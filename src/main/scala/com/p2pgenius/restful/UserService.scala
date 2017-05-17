@@ -169,7 +169,7 @@ trait UserService extends HttpService { this: Actor ⇒
 //            complete("ok")
         }
       }
-    }~
+    }
     delete {
       path("api" / "strategy" / Rest/ IntNumber) {
         (ppdName, sid) => {
