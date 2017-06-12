@@ -10,13 +10,26 @@ import scala.collection.mutable.ArrayBuffer
 object ObjectDigitalSignHelper {
   def getObjectHashString(propertyObjects: PropertyObject*): String = {
 //    val list = new util.ArrayList[String]
-    //propertyObjects.sortBy(e => e.isSign).reduce(_.lowerName + _.lowerName)
-"" // t
+//    propertyObjects.sortBy(e => e.isSign).reduce(_.lowerName + _.lowerName)
+ // t
+    try {
+      val sb = StringBuilder.newBuilder
+      propertyObjects.sortBy(po => po.lowerName).foreach { o =>
+        sb.append(o.lowerName)
+        sb.append(o.value)
+      }
+      sb.toString()
+    } catch {
+      case ex: Exception =>
+        println("exception is raised " + ex.getMessage)
+        ""
+    }
 //    var list = List[String]
 //    for (propertyObject <- propertyObjects) {
 //      if (propertyObject.isSign) list += propertyObject.lowerName //list.add(propertyObject.lowerName)
 //    }
-//
+
+
 //    Collections.sort(list)
 //    val sb = new StringBuffer
 //    import scala.collection.JavaConversions._

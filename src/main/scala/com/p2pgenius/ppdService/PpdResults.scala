@@ -1,5 +1,7 @@
 package com.p2pgenius.ppdService
 
+import java.util.Date
+
 
 case class LoanListResult(LoanInfos: List[LoanList], Result: Int, ResultMessage: String, ResultCode: String)
 case class LoanList(ListingId: Long, Title: String, CreditCode: String, Rate: Double, Amount: Double, Months: Double, PayWay: Int, RemainFunding:Double )
@@ -12,19 +14,28 @@ case class LoanInfo(FistBidTime: String, LastBidTime: String, LenderCount: Int, 
                     NormalCount: Int, OverdueLessCount: Int, OverdueMoreCount: Int, OwingPrincipal: Int, OwingAmount: Int,
                     AmountToReceive: Int, FirstSuccessBorrowTime: String, RegisterTime: String, CertificateValidate: Int,
                     NciicIdentityCheck:Int, PhoneValidate: Int, VideoValidate: Int, CreditValidate: Int, EducateValidate: Int,
-                    sumLoanAmount:Double = 0, maxLoanAmount: Double = 0, highestDebt: Double = 0,
+                    HighestPrincipal: Option[Double], HighestDebt: Option[Double], TotalPrincipal: Option[Double],
+                    // sumLoanAmount:Double = 0, maxLoanAmount: Double = 0, highestDebt: Double = 0,
                     status: Int = 2)
+
 
 
 case class LoanStatusResult(Infos: List[LoanStatus], Result: Int, ResultMessage: String, ResultCode: String)
 case class LoanStatus(ListingId: Long, Status: Int)
 
 
-case class BidResult(ListingId: Int, Amount: Int, ParticipationAmount: Int, Result: Int, ResultMessage: String)
+case class BidResult(ListingId: Long, Amount: Int, ParticipationAmount: Int, Result: Int, ResultMessage: String)
 
 case class QueryBalanceResult(Balance:List[Balance], Result: Int, ResultMessage: String)
 case class Balance(AccountCategory: String, Balance: Double)
 
 case class UserInfoResult(UserName: String, ReturnMessage: String, ReturnCode: String)
+
+case class ListingPaymentResult(ListingPayment: List[ListingPayment], Result: Int, ResultMessage: String)
+case class ListingPayment(ListingId: Long, OrderId: Int, DueDate: Date, RepayDate: Date, RepayPrincipal: Double,
+                          RepayInterest: Double, OwingPrincipal: Double, OwingInterest: Double, OwingOverdue: Double,
+                          OverdueDays: Int, RepayStatus: Int)
+
+
 
 

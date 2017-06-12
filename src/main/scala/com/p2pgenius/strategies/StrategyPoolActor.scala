@@ -3,8 +3,10 @@ package com.p2pgenius.strategies
 import akka.actor.{Actor, ActorLogging, ActorRef, PoisonPill, Props}
 import akka.pattern.ask
 import akka.util.Timeout
-import com.p2pgenius.persistence.{PersisterActor, PpdUser, Strategy}
+import com.p2pgenius.persistence.{PersistAction, PersistActionType, PersisterActor, PpdUser, Strategy}
 import com.p2pgenius.ppdService.{LoanInfo, LoanList}
+import com.p2pgenius.restful.UIStrategy
+import com.p2pgenius.user.Result
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -27,9 +29,18 @@ class StrategyPoolActor extends Actor with ActorLogging {
   override def receive: Receive = {
     case "INIT" => init()
 
-    case s: UIStrategy => //
+    case s: Strategy => saveStrategyDesc(s)
 
     case FetchMyStrategies(ppdName) => fetchMyStrategies(ppdName)
+
+    case FetchStrategyInfo(ppdName, sid) => {
+      val s = strategyMap.get(sid)
+      if(s == None)
+        sender ! Result(1, "没有找到策略")
+      else
+        sender ! Result(0, "成功加载策略", s.get)
+    }
+
 
     case s: SubscribeStrategy => {
       log.debug("转发消息到订阅的策略")
@@ -54,7 +65,7 @@ class StrategyPoolActor extends Actor with ActorLogging {
     */
   def init(): Unit = {
     log.debug("从数据库中读取所有的策略数据")
-    val future = persisRef ? "FETCH_ALL_STRATEGIES"
+    val future = persisRef ? PersistAction(PersistActionType.FETCH_ALL_STRATEGIES)
     future onSuccess {
       case strategies: List[Strategy]  => {
         for(s <- strategies) {
@@ -85,6 +96,29 @@ class StrategyPoolActor extends Actor with ActorLogging {
 //  def fetchStrategies(): Unit = {
 //    sender ! strategyMap.values.toList
 //  }
+
+  def saveStrategyDesc(s: Strategy): Unit = {
+    val sender_old = sender
+    if(s.id != None && strategyMap.get(s.id.get) == None){
+      sender_old ! Result(1,"非法策略")
+    } else {
+      val future = persisRef ? PersistAction(PersistActionType.INSERT_OR_UPDATE_STRATEGY, s)
+      future onSuccess {
+        case strategy: Strategy  => {
+          log.debug("[StrategyPoolActor.saveStrategyDesc] 成功保存")
+          // 修改本地策略缓存
+          if(strategyMap.contains(strategy.id.get)) strategyMap(strategy.id.get) = strategy
+          else strategyMap += (strategy.id.get -> strategy)
+          sender_old ! Result(0,"成功保存")
+        }
+      }
+      future onFailure {
+        case e: Exception => log.debug("读取失败")
+      }
+
+
+    }
+  }
 
   /**
     * 移除自定义策略
@@ -130,3 +164,6 @@ case class UnSubscribeStrategy(ppdUser: PpdUser, sid: Int)
 case class FetchMyStrategies(ppdName: String)
 case class DeleteUserStratgy(ppdName: String, sid: Int)
 case class StrategiesDataArrived()
+
+case class FetchStrategyInfo(ppdName: String, sid: Int)
+

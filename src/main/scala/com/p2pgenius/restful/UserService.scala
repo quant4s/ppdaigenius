@@ -5,7 +5,7 @@ import java.util.Date
 import akka.actor.Actor
 import akka.pattern.ask
 import akka.util.Timeout
-import com.p2pgenius.persistence.{PpdUser, PpdUserStrategy, Strategy}
+import com.p2pgenius.persistence.{BidLog, PersistAction, PersistActionType, PersisterActor, PpdUser, PpdUserStrategy, Strategy}
 import com.p2pgenius.strategies._
 import com.p2pgenius.user._
 import org.json4s.jackson.JsonMethods._
@@ -27,16 +27,16 @@ trait UserService extends HttpService { this: Actor ⇒
 
   val userManager = actorRefFactory.actorSelection("/user/" + UserManagerActor.path)
   val spRef = actorRefFactory.actorSelection("/user/" + StrategyPoolActor.path)
+  val persistRef = actorRefFactory.actorSelection("/user/" + PersisterActor.path)
   implicit val timeout = Timeout(5 seconds)
 //  implicit val formats: Formats = DefaultFormats
 
   def userServiceRoute(implicit log: LoggingContext)  = {
     get {
-      path ("ppd" / "login") {  // 用户登录， 绑定一个新用户
-        parameters('code) { code =>
-          invokeAuthize(code)
+      path ("ppd" / "login" / Rest) { username =>  // 用户登录， 绑定一个新用户
+        parameters('code, 'state) { (code,state) =>
+          invokeAuthize(code, username)
         }
-
       } ~
       path("api" / "strategies"/ Rest) {  ppdName => // 请求所有的策略列表
         complete{
@@ -53,23 +53,33 @@ trait UserService extends HttpService { this: Actor ⇒
           val uIStrategies = new ArrayBuffer[UIStrategy]()
           for(r <- result1) {
             val s =  result2.find(f => f.sid == r._1).getOrElse(PpdUserStrategy(None, r._1, ppdName, 0, 58, 100000, 0 ))
-            uIStrategies += UIStrategy(r._1, r._2, "说明", r._3, s.status, s.amount, s.upLimit, s.start)
+            uIStrategies += UIStrategy(Some(r._1), r._2, "说明", r._3, s.status, s.amount, s.upLimit, s.start)
           }
 
-          val json = Extraction.decompose(uIStrategies)
+          val json = Extraction.decompose(Result(0, "获取策略列表成功", uIStrategies))
           compact(render(json))
         }
       } ~
       path("api" / "strategy" / "bidLogs" / Rest / IntNumber ) { (ppdUser, sid) => // 请求策略的投标日志
         complete {
+          val ref = findUserActor(ppdUser)  // TODO:
           "bidlogs"
         }
       } ~
-      path("api" / "bids" / Rest) { ppdUser => // 请求所有的投标日志
+      path("api" / "bids" / Rest / IntNumber / IntNumber) { (ppdName, page, size) => // 请求所有:的投标日志
         complete {
-          val userRef = findUserActor(ppdUser)
-          //userRef ! FetchMyBids()
-          "bids"
+          // val userRef = findUserActor(ppdName)  // TODO:
+          val future = persistRef ? PersistAction(PersistActionType.FETCH_MY_BIDS, (ppdName, page, size))
+          try {
+            val result = Await.result(future, timeout.duration).asInstanceOf[List[BidLog]]
+
+            val json = Extraction.decompose(Result(0, "成功", result))
+            compact(render(json))
+          } catch {
+            case _ =>
+              val json = Extraction.decompose(Result(1, "失败"))
+              compact(render(json))
+          }
         }
       } ~
       path("api"  / "info" / Rest) { ppdUser => // 基本信息
@@ -82,9 +92,13 @@ trait UserService extends HttpService { this: Actor ⇒
           "flow"
         }
       } ~
-      path("api" / "strategy" / Rest / IntNumber) { (ppdUser, sid) => // 获取自定义策略详细信息
+      path("api" / "strategy" / IntNumber) {  sid => // 获取自定义策略详细信息
         complete {
-          ""
+          log.debug("获取策略自定义内容")
+          val future = spRef ? FetchStrategyInfo("", sid)
+          val result1 = Await.result(future, timeout.duration).asInstanceOf[Result]
+          val json = Extraction.decompose(result1)
+          compact(render(json))
         }
       } ~
       path("api"  / "accounts"/ Rest) { ppdUser =>  // 获取其他相关的账户
@@ -93,34 +107,61 @@ trait UserService extends HttpService { this: Actor ⇒
       path("api" / "recommended" / Rest) { ppdUser =>  // 推荐用户
         complete("")
       } ~
-      path("api" / "ppdusers" / Rest) { ppdName =>  // 关联账户
+      path("api" / "ppdusers" / Rest) { username =>  // 关联账户
         complete{
           // val userRef = findUserActor(ppdName)
-          val future = userManager ? FetchMyRelativePpdUsers(ppdName)
-          val result1 = Await.result(future, timeout.duration).asInstanceOf[List[PpdUser]]
+          val future = userManager ? FetchMyRelativePpdUsers(username)
+          val result1 = Await.result(future, timeout.duration).asInstanceOf[Result]
 
-//          val pu1 = PpdUser("1", 10000.45, 1, 58, 0, 18, "fewfef", "fewfewfw", "grewhgfg", 34500, new Date(), 1)
-//          val pu2 = PpdUser("pdu2345", 10000.45, 1, 58, 0, 18, "fewfef", "fewfewfw", "grewhgfg", 34500, new Date(), 1)
-//          val pu3 = PpdUser("pdu3456", 10000.45, 1, 58, 0, 18, "fewfef", "fewfewfw", "grewhgfg", 34500, new Date(), 1)
-//          val xx =  List(pu1, pu2, pu3)
           val json = Extraction.decompose(result1)
           compact(render(json))
-//          """
-//            |[{"ppdName":"pdu1234","balance":10000.45,"uid":1,"investAmount":58,"reserveAmount":0,"startRate":18.0,"status":1},
-//            |{"ppdName":"pdu2345","balance":10000.45,"uid":1,"investAmount":58,"reserveAmount":0,"startRate":18.0,"status":1},
-//            |{"ppdName":"pdu3456","balance":10000.45,"uid":1,"investAmount":58,"reserveAmount":0,"startRate":18.0,"status":1}]
-//          """.stripMargin
-//          log.debug("接受到用户%s请求关联账户,返回%s".format(ppdUser, s));
-//          s
-
         }
       }
     } ~
     post {
       path("api" / "strategy" / Rest) { ppdName =>
         requestInstance { request =>
-          log.debug("新建一个策略，接收到数据%s".format(request.entity.data.asString))
-          complete("ok")
+          complete {
+            val json_str = request.entity.data.asString
+            log.debug("新建一个策略，接收到数据%s".format(json_str))
+           val jv = parse(json_str)
+            val ss = jv.extract[StrategyDesc]
+            // 提交给策略池管理器 保存数据到数据库
+            val sid =  if(ss.id == 0) None else Some(ss.id)
+            var strategy = new Strategy(sid, ss.name, ppdName, 3, json_str)
+
+            val future = spRef ? strategy
+            val result = Await.result(future, timeout.duration).asInstanceOf[Result]
+            val json = Extraction.decompose(result)
+            compact(render(json))
+          }
+        }
+      } ~
+      path ("api" / "users") {
+        requestInstance { request =>
+          log.debug("新用户注册，接收到数据%s".format(request.entity.data.asString))
+          val jv = parse(request.entity.data.asString)
+          val user = jv.extract[UIUser]
+          complete {
+            val future = userManager ? user
+            val result = Await.result(future, timeout.duration).asInstanceOf[Result]
+            val json = Extraction.decompose(result)
+            compact(render(json))
+          }
+        }
+      } ~
+      path("api" / "authenticate") {
+        requestInstance { request =>
+          log.debug("用户认证%s".format(request.entity.data.asString))
+          val jv = parse(request.entity.data.asString)
+          val user = jv.extract[UIUser]
+          complete {
+            val future = userManager ? SignIn(user)
+            val result = Await.result(future, timeout.duration).asInstanceOf[Result]
+            val json = Extraction.decompose(result)
+            compact(render(json))
+          }
+
         }
       }
     } ~
@@ -134,7 +175,9 @@ trait UserService extends HttpService { this: Actor ⇒
             val ref = findUserActor(ss.ppdName)
             if(ss.sub)  ref ! SubStrategy(ss.ppdName, ss.sid)
             else ref ! UnsubStrategy(ss.ppdName, ss.sid)
-            "ok"
+
+            val json = Extraction.decompose(Result(0, "订阅|取消订阅成功"))
+            compact(render(json))
           }
         }
       } ~
@@ -159,17 +202,22 @@ trait UserService extends HttpService { this: Actor ⇒
         requestInstance { request =>
           log.debug("新建一个策略，接收到数据%s".format(request.entity.data.asString))
           complete {
-            val jv = parse(request.entity.data.asString)
-            val ss = jv.extract[UIStrategy]
+            val json_str = request.entity.data.asString
+            log.debug("新建一个策略，接收到数据%s".format(json_str))
+           val jv = parse(json_str)
+            val ss = jv.extract[StrategyDesc]
             // 提交给策略池管理器 保存数据到数据库
-            //val strategy =  Strategy(Some(ss.id). ss.)
-            spRef ! ss
+            val sid =  if(ss.id == 0) None else Some(ss.id)
+            var strategy = new Strategy(sid, ss.name, ppdName, 3, json_str)
 
-            "OK"
-//            complete("ok")
+            val future = spRef ? strategy
+            val result = Await.result(future, timeout.duration).asInstanceOf[Result]
+            val json = Extraction.decompose(result)
+            compact(render(json))
+          }
         }
       }
-    }
+    }~
     delete {
       path("api" / "strategy" / Rest/ IntNumber) {
         (ppdName, sid) => {
@@ -183,18 +231,25 @@ trait UserService extends HttpService { this: Actor ⇒
     }
   }
 
-  def invokeAuthize(code: String)(implicit log: LoggingContext) = {
-    val future = userManager ? AuthorizeUser(code)
+  /**
+    *
+    * @param code
+    * @param log
+    * @return
+    */
+  def invokeAuthize(code: String, username: String)(implicit log: LoggingContext) = {
+    val future = userManager ? AuthorizeUser(code, username)
     val result = Await.result(future, timeout.duration).asInstanceOf[String]
     if (result != "ERROR") {
       setCookie(HttpCookie("ppdUser", content = result)){
-        log.debug("跳转到界面主界面")
-        redirect("/index.html", StatusCodes.PermanentRedirect)
-        // complete("""<!DOCTYPE html><html lang="zh_CN"><head><meta http-equiv="refresh" content="2;url=/html"></head><body>正在跳转</body></html>""")
+        log.debug("[invokeAuthize]授权成功，跳转到界面主界面")
+        // getFromResource("dist/index.html")
+        // redirect("index.html", StatusCodes.PermanentRedirect)
+         complete("""<!DOCTYPE html><html lang="zh_CN"><head><meta http-equiv="refresh" content="2;url=/html"></head><body>3 秒后关闭</body></html>""")
       }
     }
     else
-    complete("""<!DOCTYPE html><html lang="zh_CN"><head></head><body>授权失败，请重试</body></html>""")
+      complete("""<!DOCTYPE html><html lang="zh_CN"><head></head><body>授权失败，请重试</body></html>""")
    }
 
   def findUserActor(user: String) = context.actorSelection("/user/%s/%s".format(UserManagerActor.path, user))
@@ -205,5 +260,5 @@ trait UserService extends HttpService { this: Actor ⇒
 case class UISubStrategy(sid: Int, ppdName: String, sub: Boolean)
 case class UIStrategyAmount(sid: Int, ppdName: String, amount: Int, upLimit: Int, reservedAmount: Int)
 case class UISetting(ppdName: String, investAmount: Int, startRate: Double, reservedAmount: Int, autoBid: Boolean)
-
-case class UIStrategy(id: Int, name: String, desc: String, kind: Int, status: Int, amount: Int, upLimit: Int, start: Int, sd: Option[StrategyDesc] = None)
+case class UIStrategy(id: Option[Int], name: String, desc: String, kind: Int, status: Int, amount: Int, upLimit: Int, start: Int, sd: Option[StrategyDesc] = None)
+case class UIUser(id: Option[Int], username: String, password: String, balance: Option[Double], grade: Option[Int])

@@ -1,8 +1,10 @@
 package com.p2pgenius.strategies
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
-import com.p2pgenius.persistence.Strategy
+import com.p2pgenius.persistence.{BidLog, PersistAction, PersistActionType, PersisterActor, Strategy}
 import com.p2pgenius.ppdService.{LoanInfo, LoanList}
+import org.json4s.jackson.JsonMethods._
+import org.json4s.{DefaultFormats, Extraction, Formats}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -10,8 +12,10 @@ import scala.collection.mutable.ArrayBuffer
   * 策略执行器
   */
 class StrategyActor(strategy: Strategy) extends Actor with ActorLogging{
+  implicit def json4sFormats: Formats = DefaultFormats
   val subscribers = new ArrayBuffer[ActorRef]()
-  val sd: StrategyDesc  = null
+  val persisRef = context.actorSelection("/user/%s".format(PersisterActor.path))
+  val sd: StrategyDesc  = parse(strategy.json).extract[StrategyDesc]
 
   override def receive: Receive = {
 //    case FetchMyStrategies =>
@@ -23,8 +27,11 @@ class StrategyActor(strategy: Strategy) extends Actor with ActorLogging{
       subscribers -= sender  // 删除投资人
 
     case li: LoanInfo =>
-      log.debug("检测是否符合策略要求")
-      if(check(li)){subscribers.foreach(f=> f ! LoanInfoWrapper(strategy,li))}  // 通知投资人投标
+      if(check(li)){
+        log.debug("检测借款%d 是否符合策略%s要求".format(li.ListingId, strategy.name))
+        subscribers.foreach(f=> f ! LoanInfoWrapper(strategy,li))
+        persisRef ! PersistAction(PersistActionType.INSERT_BID, BidLog(None, li.ListingId, "", this.strategy.id.getOrElse(-1), this.strategy.name, 58, simulate = 1))
+      }  // 通知投资人投标xiaix
      case ll: LoanList =>
       log.debug("检测是否符合策略要求")
       //if(strategy.check(ll)) {subscribers.foreach(f=> f ! LoanListWrapper(strategy,ll))}  // 通知投资人投标
@@ -48,11 +55,18 @@ class StrategyActor(strategy: Strategy) extends Actor with ActorLogging{
     _checkNormalCount(li) &&
     _checkOverdueLessCount(li) &&
     _checkOverdueMoreCount(li) &&
-    _checkOwingAmount(li)
+    _checkOwingAmount(li) &&
+    _checkHighestDebt(li) &&
+    _checkOADivTP(li) &&
+    _checkOADivHD(li) &&
+    _checkADivHP(li) &&
+    _checkSADivHD(li) &&
+    _checkATRDivSD(li)
+
   }
 
   def _checkAge(li: LoanInfo) = {
-    if(sd.ageMax == 0) true
+    if(sd.ageMax == -1) true
     else (li.Age >= sd.ageMin && li.Age <= sd.ageMax)
   }
 
@@ -64,17 +78,17 @@ class StrategyActor(strategy: Strategy) extends Actor with ActorLogging{
   }
 
   def _checkMonth(li: LoanInfo) = {
-    if(sd.monthMax == 0) true
+    if(sd.monthMax == -1) true
     else (li.Months >= sd.monthMin && li.Months <= sd.monthMax)
   }
 
   def _checkRate(li: LoanInfo) = {
-    if(sd.rateMax == 0) true
+    if(sd.rateMax == -1) true
     else(li.CurrentRate >= sd.rateMin && li.CurrentRate <= sd.rateMax)
   }
 
   def _checkAmount(li: LoanInfo) = {
-    if(sd.amountMax == 0) true
+    if(sd.amountMax == -1) true
     else (li.Amount >= sd.amountMin && li.Amount <= sd.amountMax )
   }
 
@@ -158,43 +172,105 @@ class StrategyActor(strategy: Strategy) extends Actor with ActorLogging{
   }
 
   def _checkSuccessCount(li: LoanInfo) = {
-    if(sd.successCountMax == 0) true
+    if(sd.successCountMax == -1) true
     else (li.SuccessCount >= sd.successCountMin && li.SuccessCount <= sd.successCountMax)
   }
 
   def _checkWasteCount(li: LoanInfo) = {
-    if(sd.wasteCountMax == 0) true
+    if(sd.wasteCountMax == -1) true
     else (li.WasteCount >= sd.wasteCountMin && li.WasteCount <= sd.wasteCountMax)
   }
 
   def _checkCancelCount(li: LoanInfo) = {
-    if(sd.cancelCountMax == 0) true
+    if(sd.cancelCountMax == -1) true
     else (li.CancelCount >= sd.cancelCountMin && li.CancelCount <= sd.cancelCountMax)
   }
 
   def _checkFailCount(li: LoanInfo) = {
-    if(sd.failCountMax == 0) true
+    if(sd.failCountMax == -1) true
     else (li.FailedCount >= sd.failCountMin && li.FailedCount <= sd.failCountMax)
   }
 
   def _checkNormalCount(li: LoanInfo) = {
-    if(sd.normalCountMax == 0) true
+    if(sd.normalCountMax == -1) true
     else (li.NormalCount >= sd.normalCountMin && li.NormalCount <= sd.normalCountMax)
   }
 
   def _checkOverdueLessCount(li: LoanInfo) = {
-    if(sd.overdueLessCountMax == 0) true
+    if(sd.overdueLessCountMax == -1) true
     else (li.OverdueLessCount >= sd.overdueLessCountMin && li.OverdueLessCount <= sd.overdueLessCountMax)
   }
 
   def _checkOverdueMoreCount(li: LoanInfo) = {
-    if(sd.overdueMoreCountMax == 0) true
+    if(sd.overdueMoreCountMax == -1) true
     else (li.OverdueMoreCount >= sd.overdueMoreCountMin && li.OverdueMoreCount <= sd.overdueMoreCountMax)
   }
 
   def _checkOwingAmount(li: LoanInfo) = {
-    if(sd.owingAmountMax == 0) true
+    if(sd.owingAmountMax == -1) true
     else(li.OwingAmount >= sd.owingAmountMin && li.OwingAmount <= sd.owingAmountMax)
+  }
+
+  def _checkHighestDebt(li: LoanInfo) = {
+    if(sd.highestDebtMax == -1) true
+    else (li.HighestDebt.getOrElse(0.0) >= sd.highestDebtMin && li.HighestDebt.getOrElse(0.0) <= sd.highestDebtMax)
+  }
+
+  def _checkOADivTP(li: LoanInfo) = {
+    if(sd.oADivTPMax == -1) true
+    else {
+      // 待还金额/总计借入指标
+      if(li.TotalPrincipal == None) false
+      else {
+        val div = li.OwingAmount / li.TotalPrincipal.get
+        div >= sd.oADivTPMin && div <= sd.oADivTPMax
+      }
+    }
+  }
+
+  def _checkOADivHD(li: LoanInfo) = {
+    if(sd.oADivHDMax == -1) true
+    else {
+      // 待还金额/历史最高负债
+      if(li.HighestDebt == None) false
+      else {
+        val div =  li.OwingAmount / li.HighestDebt.get
+        div >= sd.oADivHDMin && div <= sd.oADivTPMax
+      }
+    }
+  }
+
+  def _checkADivHP(li: LoanInfo) = {
+    if(sd.aDivHPMax == -1) true
+    else {
+      //  本次贷款金额/历史最高单次贷款金额
+      if(li.HighestPrincipal == None) false
+      else {
+        val div = li.Amount / li.HighestPrincipal.get
+        div >= sd.aDivHPMin && div <= sd.aDivHPMax
+      }
+    }
+  }
+
+  def _checkSADivHD(li: LoanInfo) = {
+    if(sd.sADivHDMax == -1) true
+    else {
+      //  本次负债金额(包含本次借款利息)/历史最高负债
+      if(li.HighestDebt == None) false
+      else {
+        val div = (li.OwingPrincipal + (li.Amount * (1 + li.CurrentRate / 100) * li.Months / 12)) / li.HighestDebt.get
+        div >= sd.sADivHDMin && div <= sd.sADivHDMax
+      }
+    }
+  }
+
+  def _checkATRDivSD(li: LoanInfo) = {
+    if(sd.aTRDivSDMax == -1) true
+    else {
+      //  待收金额/本次借款后的负债（代还+本次借款）
+      val div = li.AmountToReceive / (li.OwingPrincipal + (li.Amount * (1 + li.CurrentRate / 100) * li.Months / 12))
+      div >= sd.aTRDivSDMin && div <= sd.aTRDivSDMax
+    }
   }
 }
 

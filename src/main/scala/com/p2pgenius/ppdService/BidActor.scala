@@ -2,10 +2,11 @@ package com.p2pgenius.ppdService
 
 
 import java.net.HttpURLConnection
+import java.util.Date
 
 import akka.actor.{Actor, Props}
 import akka.routing.RoundRobinRouter
-import com.p2pgenius.persistence.{BidLog, PersisterActor, PpdUser, Strategy}
+import com.p2pgenius.persistence.{BidLog, PersistAction, PersistActionType, PersisterActor, PpdUser, Strategy}
 import com.ppdai.open.{PropertyObject, ValueTypeEnum}
 import org.json4s.jackson.JsonMethods._
 import org.json4s.JsonDSL._
@@ -24,18 +25,32 @@ class BidActor extends Actor with PpdRemoteService {
   }
 
   def bid(b: Bid): Unit = {
-    val json = ("ListingId" -> b.listingId) ~ ("Amount" -> b.amount)
-    val result = send(createUrlConnection(BID_URL), compact(render(json)),
-      new PropertyObject("ListingId", b.listingId, ValueTypeEnum.Int32),
-        new PropertyObject("Amount", b.listingId, ValueTypeEnum.Double))(b.ppdUser.accessToken)
-    val jv = parse(result.context)
-    val br = jv.extract[BidResult]
+    log.debug("投标" + b.toString())
+    var br: BidResult = null
+    var bidLog: BidLog =  null
+    if(b.simulate) {
+      // ListingId: Int, Amount: Int, ParticipationAmount: Int, Result: Int, ResultMessage: String
+      br = BidResult(b.listingId, b.amount, b.amount, 0, "")
+      bidLog = BidLog(None, b.listingId, b.ppdUser.ppdName, b.strategy.id.getOrElse(0), b.strategy.name, br.Amount, new Date(), 1)
+    } else {
+      val json = ("ListingId" -> b.listingId) ~ ("Amount" -> b.amount) ~ ("UseCoupon" -> "true")
+      val result = send(createUrlConnection(BID_URL), compact(render(json)),
+        new PropertyObject("ListingId", b.listingId, ValueTypeEnum.Int32),
+        new PropertyObject("Amount", b.listingId, ValueTypeEnum.Double),
+        new PropertyObject("UseCoupon", "true", ValueTypeEnum.String))(b.ppdUser.accessToken)
+      val jv = parse(result.context)
+      br = jv.extract[BidResult]
 
-    var bidLog = BidLog(None, b.listingId, b.ppdUser.ppdName, b.strategy.id.getOrElse(0), b.strategy.name, br.Amount)
+    bidLog = BidLog(None, b.listingId, b.ppdUser.ppdName, b.strategy.id.getOrElse(0), b.strategy.name, br.Amount, new Date(), 0)
+      // 保存到数据库
+//      persisRef ! bidLog
+    }
     // 保存到数据库
-    persisRef ! bidLog
+    persisRef ! PersistAction(PersistActionType.INSERT_BID, bidLog)
+
     // 把结果返回给投资人
-    sender ! BidResultWrapper(b.strategy, b.ppdUser, br)
+      sender ! BidResultWrapper(b.strategy, b.ppdUser, br)
+
   }
 }
 
@@ -49,5 +64,5 @@ object BidActor {
 }
 
 
-case class Bid(strategy: Strategy, ppdUser: PpdUser, listingId: Long, amount: Int)
+case class Bid(strategy: Strategy, ppdUser: PpdUser, listingId: Long, amount: Int, simulate: Boolean = false)
 case class BidResultWrapper(strategy: Strategy, ppdUser: PpdUser, bidResult: BidResult)

@@ -5,7 +5,7 @@ import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, Props}
 import akka.pattern.ask
-import com.p2pgenius.persistence.PersisterActor
+import com.p2pgenius.persistence.{PersistAction, PersistActionType, PersisterActor}
 import com.p2pgenius.strategies.StrategyPoolActor
 import com.ppdai.open.{PropertyObject, Result, ValueTypeEnum}
 import org.json4s.jackson.JsonMethods._
@@ -28,16 +28,16 @@ class AskLoanListActor extends Actor with PpdRemoteService with ActorLogging {
   val spRef = context.actorSelection("/user/%s".format(StrategyPoolActor.path))
   val persisRef = context.actorSelection("/user/%s".format(PersisterActor.path))
 
-  var loanMap = new mutable.HashMap[Long, LoanInfo]()   //
+  var loanMap = new mutable.HashMap[Long, (String, Int, LoanInfo, HtmlInfo)]()   //
   var lastBidTime: Date = null
 
   @scala.throws[Exception](classOf[Exception])
   override def preStart(): Unit = {
     log.debug("启动AskLoanListActor")
-//    context.system.scheduler.schedule(1 second, 1000 milliseconds, self, "ASK_LOAN_LIST")
-//    context.system.scheduler.schedule(1 second, 30 seconds, self, "ASK_LOAN_STATUS")
-//    context.system.scheduler.schedule(35 seconds, 30 seconds, self, "CLEAR_COLLECTION")
-//    context.system.scheduler.scheduleOnce(1 second, self, AskLoanList)
+    context.system.scheduler.schedule(1 second, 1000 milliseconds, self, "ASK_LOAN_LIST")
+    context.system.scheduler.schedule(1 second, 30 seconds, self, "ASK_LOAN_STATUS")
+    context.system.scheduler.schedule(35 seconds, 30 seconds, self, "CLEAR_COLLECTION")
+//    context.system.scheduler.scheduleOnce(1 second, self, "ASK_LOAN_LIST")
     super.preStart()
   }
 
@@ -75,7 +75,7 @@ class AskLoanListActor extends Actor with PpdRemoteService with ActorLogging {
       // 加入新的借款列表
       for(l <- loanListResult.LoanInfos){
         if(!checkLoanExists(l)) {
-          loanMap += (l.ListingId -> null)
+          loanMap += (l.ListingId -> (l.Title, 2,  null, null))
           list = list :+ l.ListingId
         }
       }
@@ -113,33 +113,45 @@ class AskLoanListActor extends Actor with PpdRemoteService with ActorLogging {
   def fetchLoanInfo(list: List[Long], n: Int = 10) = {
     val a = list.splitAt(n)
     log.debug("请求借款信息%d".format(a._1.size))
-    val future = ppdServiceRef ? RemoteService(ActionType.LOAN_INFO, a._1)
+    _internalFetchLoanInfo(a._1)
+    a._2
+  }
+
+  private def _internalFetchLoanInfo(list: List[Long]): Unit = {
+    val future = ppdServiceRef ? RemoteService(ActionType.LOAN_INFO, list)
     future onSuccess {
       case result: LoanInfoResult => {
-        for(li <- result.LoanInfos) {
-          if(loanMap.get(li.ListingId) == None)
-            log.warning("[AskLoanListActor.fetchLoanInfo]Map中不存在这个Key，请检查%d".format(li.ListingId))
-          else {  // 构建
-            log.debug("[AskLoanListActor.fetchLoanInfo]详细借款信息%d".format(li.ListingId))
-//            if(loanMap.get(li.ListingId).get == null)
-              loanMap(li.ListingId) = li
-//            else {  // 可能先有网页爬取的数据, 复制网页的3个数据
-//              val tli = loanMap(li.ListingId)
-//              loanMap(li.ListingId) = li.copy(sumLoanAmount = tli.sumLoanAmount, maxLoanAmount = tli.maxLoanAmount,
-//                highestDebt = tli.highestDebt)
-//            }
+        if(result.Result == 1) {
+          for (li <- result.LoanInfos) {
+            if (loanMap.get(li.ListingId) == None)
+              log.warning("[AskLoanListActor.fetchLoanInfo]Map中不存在这个Key，请检查%d".format(li.ListingId))
+            else {
+              // 构建
+              log.debug("[AskLoanListActor.fetchLoanInfo]详细借款信息%d".format(li.ListingId))
 
-            log.debug("保存到数据库%d".format(li.ListingId))
-            persisRef ! li
+              loanMap(li.ListingId) = loanMap(li.ListingId).copy(_3 = li)
+
+              log.debug("保存到数据库%d".format(li.ListingId))
+              persisRef ! PersistAction(PersistActionType.INSERT_LOAN, loanMap(li.ListingId))
+
+              log.debug("提交到策略池")
+              spRef ! li
+            }
           }
+        } else {
+          context.system.scheduler.scheduleOnce(100 milliseconds, self, AskLoanListActor.ActionType("INTERNAL_FETCH_LOAN_INFO", list))
+//          _internalFetchLoanInfo(list)
         }
       }
       case s: Any => log.warning("[AskLoanListActor.fetchLoanInfo]不支持的消息%s".format(s.toString))
     }
     future onFailure {
-      case ex: Any => log.error("[AskLoanListActor.fetchLoanInfo]发生错误%s".format(ex.getMessage))
+      case ex: Any => {
+//        _internalFetchLoanInfo(list)
+        context.system.scheduler.scheduleOnce(100 milliseconds, self, AskLoanListActor.ActionType("INTERNAL_FETCH_LOAN_INFO", list))
+        log.error("[AskLoanListActor.fetchLoanInfo]发生错误%s".format(ex.getMessage))
+      }
     }
-    a._2
   }
 
   /**
@@ -147,23 +159,39 @@ class AskLoanListActor extends Actor with PpdRemoteService with ActorLogging {
     */
   def askLoanStatus(list: List[Long], n: Int = 10) = {
     val a = list.splitAt(n)
-    val future = ppdServiceRef ? RemoteService(ActionType.LOAN_STATUS, a._1)  // FIXME: 状态
+    _internalAskLoanStatus(a._1)
+    a._2
+  }
+
+  private def _internalAskLoanStatus(list: List[Long]): Unit = {
+    val future = ppdServiceRef ? RemoteService(ActionType.LOAN_STATUS, list)  // FIXME: 状态
     future onSuccess {
       case ls: LoanStatusResult => {
         log.debug("[askLoanStatus]得到请求的返回状态")
-        ls.Infos.foreach( sr => {
-          loanMap(sr.ListingId) = loanMap(sr.ListingId).copy(status = sr.Status)
-          if(Array(0,3,4,5).contains(sr.Status)) { // 0 :流标  3 :借款成功（成功 || 成功已还清） 4: 审核失败 5 :撤标
-            // 从内存中移走
-            loanMap -= sr.ListingId
-          }
-        })
+        if(ls.ResultCode != 1) {
+          // 不成功， 重新查询
+          log.debug("[_internalAskLoanStatus]查询状态不成功， 重新查询")
+          context.system.scheduler.scheduleOnce(1 second, self, AskLoanListActor.ActionType("INTERNAL_ASK_LOAN_STATUS", list))
+          //_in ternalAskLoanStatus(list)
+        } else {
+          ls.Infos.foreach(sr => {
+            loanMap(sr.ListingId) = loanMap(sr.ListingId).copy(_2 = sr.Status)
+            //          loanMap(sr.ListingId) = (loanMap(sr.ListingId)._1, loanMap(sr.ListingId)._2.copy(status = sr.Status))
+            if (Array(0, 3, 4, 5).contains(sr.Status)) {
+              // 0 :流标  3 :借款成功（成功 || 成功已还清） 4: 审核失败 5 :撤标
+              // 从内存中移走, TODO: 更新数据库的状态
+              loanMap -= sr.ListingId
+            }
+          })
+        }
       }
     }
     future onFailure {
-      case ex: Any => log.error("发生错误%s".format(ex.getMessage))
+      case ex: Any => {
+        context.system.scheduler.scheduleOnce(1 second, self, AskLoanListActor.ActionType("INTERNAL_ASK_LOAN_STATUS", list))
+        log.error("[AskLoanListActor.askLoanStatus]请求%s状态, 发生错误 %s. 已经重新查询".format(list.toString(), ex.getMessage))
+      }
     }
-    a._2
   }
 
   /**
@@ -179,10 +207,12 @@ class AskLoanListActor extends Actor with PpdRemoteService with ActorLogging {
           log.warning("[AskLoanListActor.fetchHtmlData]Map中不存在这个Key，请检查%d".format(hi.listingId))
         else {  // 构建
           log.debug("[AskLoanListActor.fetchHtmlData]详细借款信息%d".format(hi.listingId))
-          if(loanMap.get(hi.listingId).get == null) loanMap(hi.listingId) = null  // TODO
-          else {  //  可能先有api的数据
-            loanMap(hi.listingId) = loanMap(hi.listingId).copy( highestDebt = hi.highestDebt, maxLoanAmount = hi.maxLoanAmount,sumLoanAmount = hi.sumLoanAmount)
-          }
+
+          loanMap(hi.listingId) = loanMap(hi.listingId).copy(_4 = hi)
+//          if(loanMap.get(hi.listingId).get == null) loanMap(hi.listingId) = null  // TODO
+//          else {  //  可能先有api的数据
+//            //loanMap(hi.listingId) = loanMap(hi.listingId).copy( highestDebt = hi.highestDebt, maxLoanAmount = hi.maxLoanAmount,sumLoanAmount = hi.sumLoanAmount)
+//          }
 
           log.debug("保存到数据库%d".format(hi.listingId))
           persisRef ! hi
@@ -198,9 +228,10 @@ class AskLoanListActor extends Actor with PpdRemoteService with ActorLogging {
   def clearCollection(): Unit = {
     val list = loanMap.values.toList
     for( v <- list) {
-      if(Array(0,3,4,5).contains(v.status)) { // 0 :流标  3 :借款成功（成功 || 成功已还清） 4: 审核失败 5 :撤标
+      if(Array(0,3,4,5).contains(v._2)) { // 0 :流标  3 :借款成功（成功 || 成功已还清） 4: 审核失败 5 :撤标
         // 从内存中移走
-        loanMap -= v.ListingId
+        log.debug("从MAP中移走数据");
+        loanMap -= v._3.ListingId
       }
     }
   }
@@ -215,6 +246,10 @@ class AskLoanListActor extends Actor with PpdRemoteService with ActorLogging {
     }
     case "CLEAR_COLLECTION" => clearCollection()
 
+    case AskLoanListActor.ActionType("INTERNAL_ASK_LOAN_STATUS", list) => _internalAskLoanStatus(list.asInstanceOf[List[Long]])
+    case AskLoanListActor.ActionType("INTERNAL_FETCH_LOAN_INFO", list) => _internalFetchLoanInfo(list.asInstanceOf[List[Long]])
+
+
     case _ => log.warning("不支持的消息")
   }
 
@@ -228,7 +263,6 @@ object AskLoanListActor {
   }
 
   val path = "ask_loan_list"
-}
 
-//case class AskLoanList()
-//case class LoanStatusArrived(listingId: Long, status: Int)
+  private case class ActionType(_type: String, body: Any = null)
+}

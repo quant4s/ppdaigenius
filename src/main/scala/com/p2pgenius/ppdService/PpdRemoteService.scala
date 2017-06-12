@@ -17,7 +17,7 @@ import scala.concurrent.duration._
 trait PpdRemoteService extends ActorLogging { this: Actor ⇒
 
   val autoLoginUrl = new URL(AUTO_LOGIN_URL)
-  implicit val timeout = Timeout(5 seconds)
+  implicit val timeout = Timeout(1 seconds)
   implicit val formats = DefaultFormats
   val rsaCryptoHelper = new RsaCryptoHelper(PKCSType.PKCS8,SERVER_PUBLIC_KEY, CLIENT_PRIVATED_KEY)
   val connection: HttpURLConnection

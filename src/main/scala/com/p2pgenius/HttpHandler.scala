@@ -24,7 +24,7 @@ class HttpHandler extends Actor with UserService with StaticResourcesService wit
 
 
   def receive = runRoute( respondWithHeaders(`Access-Control-Allow-Methods`(OPTIONS, GET, POST, DELETE, PUT) ::  allowOriginHeader :: optionsCorsHeaders){
-    optionsRoute ~ staticServiceRoute ~ userServiceRoute
+    optionsRoute ~ userServiceRoute  ~ staticServiceRoute
   })
 
   val optionsRoute = {

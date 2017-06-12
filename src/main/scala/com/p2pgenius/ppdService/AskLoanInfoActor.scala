@@ -11,7 +11,6 @@ import com.ppdai.open.{PropertyObject, ValueTypeEnum}
 import org.json4s.jackson.JsonMethods._
 import org.json4s.JsonDSL._
 
-
 import scala.concurrent.ExecutionContext.Implicits.global
 
 /**
@@ -28,12 +27,17 @@ class AskLoanInfoActor extends Actor with PpdRemoteService with ActorLogging {
   }
 
   def askLoanInfoActor(listIds: List[Long]) = {
-    log.debug("请求借款详情")
+//    log.debug("请求借款详情")
     val json = ("ListingIds" -> listIds)
     val result = send(createUrlConnection(LOAN_INFO_URL), compact(render(json)), new PropertyObject("ListingIds", listIds,ValueTypeEnum.Other))("")
-    val jv = parse(result.context)
-    val loanInfos = jv.extract[LoanInfoResult]
-    sender.!(loanInfos)(context.parent)
+    if(result != null) {
+      log.debug("请求借款详情" + result.context)
+      val jv = parse(result.context)
+      val loanInfos = jv.extract[LoanInfoResult]
+      sender.!(loanInfos)(context.parent)
+    } else {
+      sender.!(LoanInfoResult(null, -1, "", ""))(context.parent)
+    }
   }
 
   override def receive: Receive = {

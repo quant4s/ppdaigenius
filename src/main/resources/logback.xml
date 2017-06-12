@@ -17,6 +17,7 @@
 
     <logger name="scala.slick" level="WARN"/>
     <logger name="com.p2pgenius" level="DEBUG"/>
+    <logger name="com.p2pgenius.ppdService.AskLoanInfoActor" level="WARN"/>
 
 
     <root level="DEBUG">

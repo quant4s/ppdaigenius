@@ -20,20 +20,19 @@ class AskLoanStatusActor extends PpdRemoteService with Actor{
 
   override def receive: Receive = {
     case id: AskLoanStatus => getLoanStatus(id.ids)
+    case ids: List[Long] => getLoanStatus(ids)
     case e: Any => log.warning("[AskLoanStatusActor]不支持的消息%s".format(e.toString))
   }
 
   def getLoanStatus(ids: List[Long]) = {
     val json = ("ListingIds" -> ids)
     val result = send(createUrlConnection(LOAN_STATUS_URL), compact(render(json)) ,new PropertyObject("ListingIds", ids,ValueTypeEnum.Other))("")
-    val jv = parse(result.context)
-    val loanListResult = jv.extract[LoanStatusResult]
-    sender ! loanListResult
-//    for (lr <- loanListResult.Infos) {
-//      // 通知sender 状态改变
-//      if(lr.Status != 2)
-//      sender ! LoanStatusArrived(lr.ListingId, lr.Status)
-//    }
+    if(result != null) {
+      val jv = parse(result.context)
+      val loanListResult = jv.extract[LoanStatusResult]
+      sender.!(loanListResult)(context.parent)
+    } else
+      sender.!(LoanStatusResult(null, -1, "", ""))(context.parent)
   }
 }
 

@@ -4,6 +4,9 @@ package com.p2pgenius.strategies
   * Created by joe on 2017/5/12.
   */
 case class StrategyDesc(
+                         id: Int,
+                         name: String,
+                         desc: String,
                          ageMin: Int, ageMax: Int, // 年龄
                          male:Boolean, female:Boolean, // 性别
                          monthMin: Int, monthMax: Int, //期限范围
@@ -27,6 +30,11 @@ case class StrategyDesc(
                          normalCountMin:Int, normalCountMax:Int, // 正常还清次数
                          overdueLessCountMin: Int, overdueLessCountMax: Int, // 逾期(1-15)还清次数
                          overdueMoreCountMin:Int, overdueMoreCountMax:Int, // 逾期(15天以上)还清次数
-                         owingAmountMin: Int, owingAmountMax: Int // 待还金额
-
-                       )  
+                         owingAmountMin: Double, owingAmountMax: Double, // 待还金额
+                         highestDebtMin: Double, highestDebtMax: Double,  // 最高负债
+                         oADivTPMin: Double, oADivTPMax:Double,   // 待还金额/总计借入指标
+                         oADivHDMin: Double, oADivHDMax: Double,			//待还金额/历史最高负债
+                         aDivHPMin: Double, aDivHPMax: Double,      // 本次贷款金额/历史最高单次贷款金额
+                         sADivHDMin: Double, sADivHDMax: Double,  // 本次负债金额(包含本次借款利息)/历史最高负债
+                         aTRDivSDMin: Double, aTRDivSDMax: Double // 待收金额/本次借款后的负债（代还+本次借款）
+                       )

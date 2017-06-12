@@ -4,7 +4,8 @@ package com.p2pgenius
   * Created by joe on 2017/3/30.
   */
 package object ppdService {
-  val LOGIN_CALLBACK_URL = "http://www.ppwinner.win/"
+  val LOGIN_CALLBACK_URL = "http://218.94.106.184:18080/ppd/login/"
+  val PPD_LOGIN_URL="https://ac.ppdai.com/oauth2/login?"
   /**
     * APP ID
     */
@@ -79,4 +80,8 @@ package object ppdService {
     */
   val AUTO_LOGIN_URL = "http://gw.open.ppdai.com/auth/LoginService/AutoLogin"
 
+  /**
+    * 获取用户投资列表的还款情况
+    */
+  val FETCH_LENDER_REPAYMENT_URL = "http://gw.open.ppdai.com/invest/RepaymentService/FetchLenderRepayment" //FetchLenderRepayment
 }

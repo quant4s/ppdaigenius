@@ -2,11 +2,12 @@ package com.p2pgenius.user
 
 import java.io.{BufferedReader, DataOutputStream, InputStreamReader}
 import java.net.{HttpURLConnection, URL}
+import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, Props}
 import akka.pattern.ask
 import akka.util.Timeout
-import com.p2pgenius.persistence.{BidLog, PersisterActor, PpdUser, PpdUserStrategy, Strategy, User}
+import com.p2pgenius.persistence.{BidLog, PersistAction, PersistActionType, PersisterActor, PpdUser, PpdUserStrategy, Strategy, User}
 import com.p2pgenius.ppdService._
 import com.p2pgenius.strategies._
 import com.ppdai.open.AuthInfo
@@ -41,7 +42,7 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     log.debug("新建了一个用户Actor: %s".format(ppdUser.ppdName))
 
     // 定时作业 30min 一次 获取余额, 3秒之后，获取我的策略
-//    context.system.scheduler.schedule(2 seconds, 30 minutes, self, "QUERY_BALANCE")
+    context.system.scheduler.schedule(2 seconds, 30 minutes, self, "QUERY_BALANCE")
     context.system.scheduler.scheduleOnce(30 seconds, self, "INIT")
   }
 
@@ -49,7 +50,7 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     case "INIT" => init()
     case "QUERY_BALANCE" => queryBalance() // 查询余额
     case "REFRESH_TOKEN" => refreshToken() // 刷新Token
-    case "FETCH_RELATIVE_USER" => fetchRelativeUsers()  // 获取关联用户
+//    case "FETCH_RELATIVE_USER" => fetchRelativeUsers()  // 获取关联用户
 
     case li: LoanInfoWrapper => // receiveLoan(li.strategy, li.loanInfo.ListingId)  // 投标
     case ll: LoanListWrapper => // receiveLoan(ll.strategy, ll.loanList.ListingId) // 投标
@@ -65,14 +66,13 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     * 从数据库中读取用户关注的策略数据，并订阅，
     */
   def init(): Unit = {
-    log.debug("[初始化]读取用户%s订阅的策略".format(ppdUser.ppdName))
-    val future = persisRef ? FetchMyStrategies(ppdUser.ppdName)
+    log.debug("[PpdUserActor.init]初始化: 读取用户%s订阅的策略".format(ppdUser.ppdName))
+    val future = persisRef ? PersistAction(PersistActionType.FETCH_USER_SUB_STRATEGIES, ppdUser.ppdName)     // FetchMyStrategies(ppdUser.ppdName)
     future onSuccess {
       case strategies: List[PpdUserStrategy]  => {
         log.debug("构建订阅的策略缓存%d".format(strategies.size))
         for(ff <- strategies) {
           myStrategies += (ff.sid -> ff)
-          // spref ! SubscribeStrategy(ppdUser, s.sid)
         }
 
 
@@ -96,6 +96,11 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     log.debug("获取用户订阅的策略")
     sender ! myStrategies.values.toList
   }
+
+   def  getBids(page: Int, size: Int, date: Date): Unit ={
+
+   }
+
   /**
     * 订阅策略产生的借款标的
     * @param id 策略ID
@@ -108,8 +113,8 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     myStrategies.get(id).get.status = 1
     spref ! SubscribeStrategy(ppdUser, id)
 
-    log.debug("更新订阅状态到数据库")
-    persisRef ! myStrategies.get(id).get
+    log.debug("%s订阅%d到数据库".format(ppdUser.ppdName, id))
+    persisRef ! PersistAction(PersistActionType.INSERT_OR_UPDATE_SUB_OR_UNSUB_STRATEGY, myStrategies.get(id).get )
   }
 
   /**
@@ -120,12 +125,12 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     if(myStrategies.get(id)== None) {
       myStrategies += (id -> PpdUserStrategy(None, id, ppdUser.ppdName, 0, 58, 100000, 0))
     }
+
     myStrategies.get(id).get.status = 0
     spref ! UnSubscribeStrategy(ppdUser, id)
 
-    log.debug("更新订阅状态到数据库")
-    persisRef ! myStrategies.get(id).get
-
+    log.debug("%scancel 订阅%d 到数据库".format(ppdUser.ppdName, id))
+    persisRef ! PersistAction(PersistActionType.INSERT_OR_UPDATE_SUB_OR_UNSUB_STRATEGY, myStrategies.get(id).get )
   }
 
   /**
@@ -172,7 +177,7 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     log.debug("自动查询用户现金余额")
     val queryBalanceResult = send(createUrlConnection(QUERY_BALANCE_URL),"")(ppdUser.accessToken)
     if(queryBalanceResult == null)
-      self ! "QUERY_BALANCE"
+      log.debug("[queryBalance] %s a error raised".format(ppdUser.ppdName))
     else {
       val queryBalance = if (queryBalanceResult.sucess) {
         val jv = parse(queryBalanceResult.context)

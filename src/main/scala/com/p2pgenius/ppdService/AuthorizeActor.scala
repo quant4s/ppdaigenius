@@ -1,6 +1,7 @@
 package com.p2pgenius.ppdService
 
 import java.net.HttpURLConnection
+import java.text.SimpleDateFormat
 import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, Props}
@@ -8,6 +9,8 @@ import com.p2pgenius.persistence.PpdUser
 import com.p2pgenius.user.AuthorizeUser
 import com.ppdai.open.PKCSType.PKCSType
 import com.ppdai.open._
+import com.ppdai.open.RsaCryptoHelper
+import com.ppdai.open.core.OpenApiClient
 import org.json4s.jackson.JsonMethods.parse
 
 /**
@@ -36,17 +39,21 @@ class AuthorizeActor extends PpdRemoteService with Actor with ActorLogging{
           null.asInstanceOf[AuthInfo]
 
     log.debug("获取用户名")
-    val userInfoResult = send(queryUsernameConn, "", new PropertyObject("Timestamp", new Date(), ValueTypeEnum.DateTime))(authInfo.AccessToken) // 用户名
+    val simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    val d = new Date()
+//    OpenApiClient.Init(APP_ID, com.ppdai.open.core.RsaCryptoHelper.PKCSType.PKCS8, SERVER_PUBLIC_KEY, CLIENT_PRIVATED_KEY)
+//    val r = OpenApiClient.send(QUERY_USERNAME_URL, authInfo.AccessToken, new com.ppdai.open.core.PropertyObject("OpenID", authInfo.OpenID, com.ppdai.open.core.ValueTypeEnum.String))
+    val json = "{\"OpenID\":\"%s\"}".format(authInfo.OpenID)
+    val userInfoResult = send(queryUsernameConn, json, new PropertyObject("OpenID", authInfo.OpenID, ValueTypeEnum.String))(authInfo.AccessToken)// 用户名
     val userInfo = if(userInfoResult.sucess) {
       val jv = parse(userInfoResult.context)
       jv.extract[UserInfoResult]
     } else
       null.asInstanceOf[UserInfoResult]
 
-//    new RsaCryptoHelper(PKCSType.PKCS8, SERVER_PUBLIC_KEY, CLIENT_PRIVATED_KEY).encryptByPublicKey(userInfo.UserName)
-    val ppdName = code //userInfo.UserName
+    val ppdName =new RsaCryptoHelper(PKCSType.PKCS8, SERVER_PUBLIC_KEY, CLIENT_PRIVATED_KEY).decryptByPrivateKey(userInfo.UserName)
+//    val ppdName = code
 
-    log.debug("获取用户余额")
     val queryBalanceResult = send(connection, "")(authInfo.AccessToken)  // 查询余额
     val queryBalance = if(queryBalanceResult.sucess) {
       val jv = parse(queryBalanceResult.context)
@@ -54,6 +61,9 @@ class AuthorizeActor extends PpdRemoteService with Actor with ActorLogging{
     } else
       null.asInstanceOf[QueryBalanceResult]
     val balance =  queryBalance.Balance.find(b => b.AccountCategory == "用户备付金.用户现金余额").get.Balance
+    log.debug("获取用户%s  余额:%s".format(ppdName,balance.toString))
+
+    //
 
     log.info("通知用户管理Actor，创建一个新的用户")
     sender ! PpdUser(ppdName, balance, 0, 58, 0, 16, authInfo.OpenID, authInfo.AccessToken,

@@ -48,8 +48,8 @@ object MainApp extends App{
 
   log.debug("启动HTTP服务器")
   val handler = system.actorOf(HttpHandler.props, HttpHandler.path)
-  val interface = "localhost" // system.settings.config.getString("app.interface")
-  val port = 8080 //system.settings.config.getInt("app.port")
+  val interface = system.settings.config.getString("app.interface")
+  val port = system.settings.config.getInt("app.port")
   IO(Http) ! Http.Bind(handler, interface, port)
 
 //  def propertyToJson(propertyObjects: com.ppdai.open.PropertyObject*): String = {

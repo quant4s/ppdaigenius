@@ -67,14 +67,17 @@ package object persistence {
   }
   val gPpdUsers = TableQuery[PpdUsers]
 
-  case class User(id: Option[Int], var balance: Double, var lastBidTime: Option[Date], status: Int = 0)
+  case class User(id: Option[Int], username: String, password: String, grade: Int, var balance: Double, var lastBidTime: Option[Date], status: Int = 0)
   class Users(tag: Tag) extends Table[User](tag, "T_USER") {
     def id = column[Int]("ID", O.PrimaryKey, O.AutoInc)
+    def username = column[String]("USERNAME")
+    def password = column[String]("PASSWORD")
+    def grade = column[Int]("GRADE")
     def balance = column[Double]("BALANCE")
     def lastBidTime = column[Date]("LAST_BID_TIME")
     def status = column[Int]("STATUS")
 
-    override def * = (id.?, balance, lastBidTime.?, status) <>(User.tupled, User.unapply)
+    override def * = (id.?, username, password, grade,balance, lastBidTime.?, status) <>(User.tupled, User.unapply)
   }
   val gUsers = TableQuery[Users]
 
@@ -84,7 +87,7 @@ package object persistence {
     def name = column[String]("NAME")
     def ppdUser = column[String]("PPD_USER")
     def kind = column[Int]("KIND")
-    def json = column[String]("JSON_STR")
+    def json = column[String]("JSON_STR", O.DBType("varchar(5000)"))
 
     override def * = (id.?, name, ppdUser, kind, json) <>(Strategy.tupled, Strategy.unapply)
   }
@@ -104,7 +107,7 @@ package object persistence {
   }
   val gppdUserStartegies = TableQuery[PpdUserStrategies]
 
-  case class BidLog(id: Option[Long], listingId: Long, ppdName: String, sid: Int, sname: String, amount: Int)
+  case class BidLog(id: Option[Long], listingId: Long, ppdName: String, sid: Int, sname: String, amount: Int, date: Date = new Date(), simulate: Int =  0)
   class BidLogs(tag: Tag) extends Table[BidLog](tag, "T_BID_LOG") {
     def id = column[Long]("ID", O.AutoInc, O.PrimaryKey)
     def listingId = column[Long]("LISTING_ID")
@@ -112,12 +115,40 @@ package object persistence {
     def sid = column[Int]("STRATEGY_ID")
     def sname = column[String]("STRATEGY_NAME")
     def amount = column[Int]("AMOUNT")
+    def date = column[Date]("BID_DATE")
+    def simulate = column[Int]("SIMULATE")
 
-    override def * =(id.?, listingId, ppdName, sid, sname,amount) <> (BidLog.tupled, BidLog.unapply)
+    override def * =(id.?, listingId, ppdName, sid, sname,amount, date, simulate) <> (BidLog.tupled, BidLog.unapply)
   }
   val gBidLogs = TableQuery[BidLogs]
 
+  class BidLogSims(tag: Tag) extends Table[BidLog](tag, "T_BID_LOG_SIM") {
+    def id = column[Long]("ID", O.AutoInc, O.PrimaryKey)
+    def listingId = column[Long]("LISTING_ID")
+    def ppdName = column[String]("PPD_NAME")
+    def sid = column[Int]("STRATEGY_ID")
+    def sname = column[String]("STRATEGY_NAME")
+    def amount = column[Int]("AMOUNT")
+    def date = column[Date]("BID_DATE")
+    def simulate = column[Int]("SIMULATE")
+
+    override def * =(id.?, listingId, ppdName, sid, sname,amount, date, simulate) <> (BidLog.tupled, BidLog.unapply)
+  }
+  val gBidLogSims = TableQuery[BidLogSims]
+
   // =================== 借款信息 ======================
+  case class LoanInfoJson(listingId: Long, title: String, status: Int, loanInfo: String, htmlInfo:String)
+  class LoanInfoJsons(tag: Tag) extends Table[LoanInfoJson](tag, "T_LOAN_INFO_JSON") {
+    def listingId = column[Long]("LISTING_ID")
+    def title = column[String]("TITLE")
+    def status = column[Int]("STATUS")
+    def json = column[String]("LOAN_INFO", O.DBType("varchar(2000)"))
+    def htmlInfo = column[String]("HTML_INFO", O.DBType("varchar(1000)"))
+
+    override def * = (listingId, title, status, json, htmlInfo) <> (LoanInfoJson.tupled, LoanInfoJson.unapply)
+  }
+  val gloanInfoJsons = TableQuery[LoanInfoJsons]
+
   case class LoanInfoExt(listingId: Long, bi: BasicInfo, li: ListingInfo, ci: CreditInfo, ai: AuditInfo, si: StatInfo, pi: PageInfo, status: Int = 2)
   case class BasicInfo(borrowName: String, firstBidTime: String, lastBidTime: String, lenderCount: Int,
                        auditingTime: String, remainFunding: Int, deadLineTimeOrRemindTimeStr: String,
@@ -242,4 +273,13 @@ package object persistence {
   val gBiders = TableQuery[Biders]
 
 
+  case class Overdue(listingId: Long, maxDays: Int, count: Int)
+  class Overdues(tag: Tag) extends Table[Overdue](tag, "T_OVERDUE") {
+    def listingId = column[Long]("LISTING_ID", O.PrimaryKey)
+    def maxDays = column[Int]("MAX_DAYS")
+    def count = column[Int]("COUNT")
+
+    override def * = (listingId, maxDays, count) <> (Overdue.tupled, Overdue.unapply)
+  }
+  val gOverdues = TableQuery[Overdues]
 }

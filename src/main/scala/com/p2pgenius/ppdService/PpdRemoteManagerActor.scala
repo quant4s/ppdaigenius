@@ -34,17 +34,17 @@ class PpdRemoteManagerActor extends Actor with ActorLogging{
       future onSuccess {
         case r: LoanInfoResult => sender_old ! r
       }
-      future onFailure {
-        case ex: Any => log.error("[LOAN_INFO]发现错误%s".format(ex.getMessage))
-      }
+//      future onFailure {
+//        case ex: Any => log.error("[LOAN_INFO]发现错误%s".format(ex.getMessage))
+//      }
     }
 
-    case  RemoteService(ActionType.LOAN_STATUS, e) => {
+    case RemoteService(ActionType.LOAN_STATUS, e) => {
       log.debug("转发获取状态消息")
       val future = loanStatusRouter ? e
       val sender_old = sender
       future onSuccess {
-        case r: LoanInfoResult => sender_old ! r
+        case r: LoanStatusResult => sender_old ! r
       }
     }
 
