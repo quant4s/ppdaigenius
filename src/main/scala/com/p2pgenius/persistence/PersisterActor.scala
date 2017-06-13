@@ -5,7 +5,7 @@ import java.util.Date
 import akka.actor.{Actor, ActorLogging, Props}
 import com.p2pgenius.persistence.PersistActionType.PersistActionType
 import com.p2pgenius.ppdService.{HtmlInfo, LoanInfo}
-import com.p2pgenius.strategies.FetchMyStrategies
+
 import org.json4s._
 import org.json4s.jackson.JsonMethods.{compact, render}
 
@@ -23,7 +23,7 @@ class PersisterActor extends Actor with ActorLogging {
     MappedColumnType .base[java.util.Date, java.sql.Timestamp] (
       d => new java.sql.Timestamp(d.getTime),
       d => new java.util.Date(d.getTime))
-//   installDb()
+  //installDb()
 
   def getDatabase(): Database = {
 //    val TEST = "test"
@@ -71,14 +71,14 @@ class PersisterActor extends Actor with ActorLogging {
     case PersistAction(PersistActionType.FETCH_MY_BIDS, req) => fetchMyBids(req.asInstanceOf[(String, Int, Int)])
 //    case Fet"FETCH_ALL_PPD_USERS"chPpdUsers => fetchPpdUsers()   // 读取所有的拍拍贷用户信息
 //    case FetchStrategies => fetchStrategies() // 读取所有的策略
-    case GetUser(ppdUser) => getUser(ppdUser)
+//    case GetUser(ppdUser) => getUser(ppdUser)
 //    case FetchMyRelativePpdUsers(ppdUser) => fetchMyRelativePpdUsers(ppdUser)
-    case _ => log.warning("【PersisterActor】不支持的消息")    // 读取所有Ppd用户
+    case m:Any => log.warning("【PersisterActor】不支持的消息%s".format(m.toString))    // 读取所有Ppd用户
   }
 
   def installDb(): Unit = {
     val ddl = gUsers.ddl ++ gPpdUsers.ddl ++ gBiders.ddl ++ gBidLogs.ddl ++ gStrategies.ddl ++ gLoanInfos.ddl ++ gloanInfoJsons.ddl ++ gppdUserStartegies.ddl
-    ddl.drop
+    // ddl.drop
     ddl.create
 
     _initDatabase()
@@ -247,11 +247,11 @@ class PersisterActor extends Actor with ActorLogging {
     sender ! gStrategies.list
   }
 
-  /**
-    * 获取PPD USER 相应的User
-    * @param ppdUser
-    */
-  def getUser(ppdUser: PpdUser) = sender ! gUsers.filter(_.id === ppdUser.uid).take(1).firstOption.get
+//  /**
+//    * 获取PPD USER 相应的User
+//    * @param ppdUser
+//    */
+//  def getUser(ppdUser: PpdUser) = sender ! gUsers.filter(_.id === ppdUser.uid).take(1).firstOption.get
 
   def fetchMyBids(req: (String, Int, Int)) =  {
     val offset = req._2 * req._3
@@ -270,7 +270,7 @@ object PersisterActor {
 }
 
 //case class FetchPpdUsers()
-case class GetUser(ppdUser: PpdUser)
+//case class GetUser(ppdUser: PpdUser)
 
 case class PersistAction(action: PersistActionType, body: Any = null)
 
@@ -294,7 +294,6 @@ object PersistActionType extends Enumeration {
       FETCH_USER_SUB_STRATEGIES,
       FETCH_MY_BIDS,
 
-      INSERT_OR_UPDATE_OVERDUE,
-
-  F= Value
+      INSERT_OR_UPDATE_OVERDUE
+    = Value
 }

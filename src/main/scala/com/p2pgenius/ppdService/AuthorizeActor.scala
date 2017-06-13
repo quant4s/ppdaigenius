@@ -6,11 +6,7 @@ import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, Props}
 import com.p2pgenius.persistence.PpdUser
-import com.p2pgenius.user.AuthorizeUser
-import com.ppdai.open.PKCSType.PKCSType
-import com.ppdai.open._
-import com.ppdai.open.RsaCryptoHelper
-import com.ppdai.open.core.OpenApiClient
+import com.ppdai.open.{RsaCryptoHelper, _}
 import org.json4s.jackson.JsonMethods.parse
 
 /**
@@ -25,7 +21,8 @@ class AuthorizeActor extends PpdRemoteService with Actor with ActorLogging{
   val authorizeConn = createUrlConnection(AUTHORIZE_URL)
 
   override def receive: Receive = {
-    case au: AuthorizeUser => authorize(au.code)
+    case ServiceAction(ServiceActionType.AUTHORIZE_USER, au) =>authorize(au.asInstanceOf[(String, String)]._1)
+//    case au: AuthorizeUser => authorize(au.code)
   }
 
 

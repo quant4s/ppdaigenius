@@ -35,7 +35,6 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
 
   var myStrategies = HashMap[Int, PpdUserStrategy]()
 
-
   @scala.throws[Exception](classOf[Exception])
   override def preStart(): Unit = {
     super.preStart()
@@ -50,15 +49,15 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     case "INIT" => init()
     case "QUERY_BALANCE" => queryBalance() // 查询余额
     case "REFRESH_TOKEN" => refreshToken() // 刷新Token
-//    case "FETCH_RELATIVE_USER" => fetchRelativeUsers()  // 获取关联用户
 
-    case li: LoanInfoWrapper => // receiveLoan(li.strategy, li.loanInfo.ListingId)  // 投标
-    case ll: LoanListWrapper => // receiveLoan(ll.strategy, ll.loanList.ListingId) // 投标
-    case b: BidResultWrapper =>  receiveBid(b) // 接收到投标结果
+    case ServiceAction(ServiceActionType.SUB_STRATEGY, s: (String, Int)) => subscribeStrategy(s._2)
+    case ServiceAction(ServiceActionType.UNSUB_STRATEGY, s: (String, Int)) => unSubscribeStrategy(s._2)
+    case ServiceAction(ServiceActionType.FETCH_MY_STRATEGY_lIST_SETTING, _) =>fetchMyStrategies()
+    case ServiceAction(ServiceActionType.FETCH_MY_PPD_USER_LIST, _) => fetchRelativeUsers()
+//    case li: LoanInfoWrapper => // receiveLoan(li.strategy, li.loanInfo.ListingId)  // 投标
+//    case ll: LoanListWrapper => // receiveLoan(ll.strategy, ll.loanList.ListingId) // 投标
+//    case b: BidResultWrapper =>  receiveBid(b) // 接收到投标结果
 
-    case s: FetchMyStrategies => fetchMyStrategies()
-    case s: SubStrategy => subscribeStrategy(s.sid)   // 订阅
-    case s: UnsubStrategy => unSubscribeStrategy(s.sid) // 取消订阅
     case x: Any => log.warning("不支持的消息%s".format(x.toString))// 更新策略下单金额
   }
 
@@ -111,7 +110,7 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     }
 
     myStrategies.get(id).get.status = 1
-    spref ! SubscribeStrategy(ppdUser, id)
+    spref ! ServiceAction(ServiceActionType.SUB_STRATEGY, (ppdUser, id))
 
     log.debug("%s订阅%d到数据库".format(ppdUser.ppdName, id))
     persisRef ! PersistAction(PersistActionType.INSERT_OR_UPDATE_SUB_OR_UNSUB_STRATEGY, myStrategies.get(id).get )
@@ -127,7 +126,7 @@ class PpdUserActor(ppdUser: PpdUser) extends Actor with PpdRemoteService with Ac
     }
 
     myStrategies.get(id).get.status = 0
-    spref ! UnSubscribeStrategy(ppdUser, id)
+    spref ! ServiceAction(ServiceActionType.UNSUB_STRATEGY, (ppdUser, id))
 
     log.debug("%scancel 订阅%d 到数据库".format(ppdUser.ppdName, id))
     persisRef ! PersistAction(PersistActionType.INSERT_OR_UPDATE_SUB_OR_UNSUB_STRATEGY, myStrategies.get(id).get )

@@ -38,13 +38,21 @@ class UserManagerActor extends Actor with ActorLogging {
   override def receive: Receive = {
     case "INIT" =>  {
       fetchPpdUsers()
-      fetchUsers();
+      fetchUsers()
     }
-    case FetchMyRelativePpdUsers(username) =>fetchMyRelativePpdUsers(username)
-    case u: UIUser => createUser(u)
-    case SignIn(u) => signIn(u)
-    case au: AuthorizeUser => authorizeUser(au)
-    case remove: RemovePpdUser => removeUser(remove.ppdUser)
+
+    case ServiceAction(ServiceActionType.AUTHORIZE_USER, au) =>authorizeUser(au.asInstanceOf[(String, String)])
+    case ServiceAction(ServiceActionType.SIGN_IN, u) => signIn(u.asInstanceOf[UIUser])
+    case ServiceAction(ServiceActionType.SIGN_UP, u) => createUser(u.asInstanceOf[UIUser])
+    case ServiceAction(ServiceActionType.REMOVE_PPD_USER, user) =>removeUser(user.asInstanceOf[PpdUser])
+    case ServiceAction(ServiceActionType.FETCH_MY_PPD_USER_LIST, username) => fetchMyRelativePpdUsers(username.asInstanceOf[String])
+
+//    case FetchMyRelativePpdUsers(username) =>fetchMyRelativePpdUsers(username)
+//    case u: UIUser => createUser(u)
+//    case SignIn(u) => signIn(u)
+//    case ServiceAction(ServiceActionType.SIGN_IN, u) => signIn(u.asInstanceOf[UIUser])
+//    case au: AuthorizeUser => authorizeUser(au)
+//    case remove: RemovePpdUser => removeUser(remove.ppdUser)
     case _ => log.debug("unsupported message")
   }
 
@@ -131,22 +139,21 @@ class UserManagerActor extends Actor with ActorLogging {
     }
   }
 
-  def authorizeUser(au: AuthorizeUser): Unit =  {
+  def authorizeUser(au: (String, String)): Unit =  {
     val sender_old = sender
     val ref = context.actorOf(AuthorizeActor.props())
-    val future = ref ? au
+    val future = ref ? ServiceAction(ServiceActionType.AUTHORIZE_USER, au)
     future onSuccess {
       case user: PpdUser  => {
         if(ppdUsers.contains(user.ppdName))
           log.debug("authorize duplicate")
         else {
           log.debug("授权完成, 新增加一个授权用户" + user.toString )
-          val tu = user.copy( uid = users.get(au.username).get.id.get)
+          val tu = user.copy( uid = users.get(au._2).get.id.get)
           persisRef ! PersistAction(PersistActionType.INSERT_PPD_USER, tu)
           createUser(tu)
         }
-        sender_old ! user.ppdName
-
+        sender_old ! Result(0, "", user.ppdName)
       }
     }
 
@@ -188,9 +195,9 @@ object UserManagerActor {
   }
 }
 
-case class AuthorizeUser(code: String, username: String)
-case class RemovePpdUser(ppdUser: PpdUser)
-case class FetchMyRelativePpdUsers(username: String)
-case class CreateUser(user: UIUser)
-case class SignIn(uIUser: UIUser)
+//case class AuthorizeUser(code: String, username: String)
+//case class RemovePpdUser(ppdUser: PpdUser)
+//case class FetchMyRelativePpdUsers(username: String)
+//case class CreateUser(user: UIUser)
+//case class SignIn(uIUser: UIUser)
 

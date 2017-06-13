@@ -4,8 +4,7 @@ import akka.actor.{Actor, ActorLogging, ActorRef, PoisonPill, Props}
 import akka.pattern.ask
 import akka.util.Timeout
 import com.p2pgenius.persistence.{PersistAction, PersistActionType, PersisterActor, PpdUser, Strategy}
-import com.p2pgenius.ppdService.{LoanInfo, LoanList}
-import com.p2pgenius.restful.UIStrategy
+import com.p2pgenius.ppdService.{LoanInfo, LoanList, ServiceAction, ServiceActionType}
 import com.p2pgenius.user.Result
 
 import scala.collection.mutable
@@ -21,7 +20,7 @@ import scala.concurrent.duration._
 class StrategyPoolActor extends Actor with ActorLogging {
   private var strategyActorRefs = new mutable.HashMap[Int, ActorRef]()
   private var strategyMap = new mutable.HashMap[Int, Strategy]()    // 仅仅保存用户策略
-  val persisRef = context.actorSelection("/user/%s".format(PersisterActor.path))
+  private val persisRef = context.actorSelection("/user/%s".format(PersisterActor.path))
   implicit val timeout = Timeout(5 seconds)
 
   context.system.scheduler.scheduleOnce( 2 seconds, self, "INIT")
@@ -29,26 +28,14 @@ class StrategyPoolActor extends Actor with ActorLogging {
   override def receive: Receive = {
     case "INIT" => init()
 
-    case s: Strategy => saveStrategyDesc(s)
+    case ServiceAction(ServiceActionType.INSERT_STRATEGY, e) => saveStrategyDesc(e.asInstanceOf[Strategy])
+    case ServiceAction(ServiceActionType.FETCH_MY_STRATEGY_LIST, ppdName) => fetchMyStrategies(ppdName.asInstanceOf[String])
+    case ServiceAction(ServiceActionType.LOAD_STRATEGY_INFO, e) => loadStrategyInfo(e.asInstanceOf[(String, Int)])
+    case m: ServiceAction if(m.action == ServiceActionType.SUB_STRATEGY || m.action == ServiceActionType.UNSUB_STRATEGY) =>
+      forwardSubNUnSubMessage(m)
 
-    case FetchMyStrategies(ppdName) => fetchMyStrategies(ppdName)
-
-    case FetchStrategyInfo(ppdName, sid) => {
-      val s = strategyMap.get(sid)
-      if(s == None)
-        sender ! Result(1, "没有找到策略")
-      else
-        sender ! Result(0, "成功加载策略", s.get)
-    }
-
-
-    case s: SubscribeStrategy => {
-      log.debug("转发消息到订阅的策略")
-      strategyActorRefs(s.sid) forward s
-    }
-    case s: UnSubscribeStrategy => strategyActorRefs(s.sid) forward s
-
-    case s: DeleteUserStratgy => removeUserDefineStrategy(s)
+    case ServiceAction(ServiceActionType.REMOVE_STRATEGY, e) => removeUserDefineStrategy(e.asInstanceOf[(String, Int)])
+    case ServiceAction(ServiceActionType.CHECK_LOAN, e) => log.error("转发借款标的到策略LoanInfo")
 
     case li: LoanInfo =>
       log.debug("转发借款标的到策略LoanInfo")
@@ -85,6 +72,20 @@ class StrategyPoolActor extends Actor with ActorLogging {
 //    log.debug("初始化策略%s".format(s.name))
   }
 
+  def loadStrategyInfo(e: (String, Int)): Unit = {
+    val s = strategyMap.get(e._2)
+    if( s !=None && s.get.ppdName == e._1){
+      sender ! Result(0, "成功加载策略", s.get)
+    } else {
+      sender ! Result(1, "没有找到策略")
+    }
+  }
+
+  def forwardSubNUnSubMessage(m: ServiceAction): Unit = {
+    val id = m.body.asInstanceOf[(String, Int)]._2
+    strategyActorRefs(id) forward m
+  }
+
   def initStrategies(): Unit = {
     for(s <- strategyMap) {
       val ref = context.actorOf(StrategyActor.props(s._2), s._1.toString)
@@ -92,10 +93,6 @@ class StrategyPoolActor extends Actor with ActorLogging {
       log.debug("初始化策略%s".format(s._2.name))
     }
   }
-
-//  def fetchStrategies(): Unit = {
-//    sender ! strategyMap.values.toList
-//  }
 
   def saveStrategyDesc(s: Strategy): Unit = {
     val sender_old = sender
@@ -115,8 +112,6 @@ class StrategyPoolActor extends Actor with ActorLogging {
       future onFailure {
         case e: Exception => log.debug("读取失败")
       }
-
-
     }
   }
 
@@ -124,11 +119,20 @@ class StrategyPoolActor extends Actor with ActorLogging {
     * 移除自定义策略
     * @param s
     */
-  def removeUserDefineStrategy(s: DeleteUserStratgy): Unit = {
-    strategyActorRefs(s.sid) ! PoisonPill
-    strategyActorRefs.remove(s.sid)
+  def removeUserDefineStrategy(s: (String, Int)): Unit = {
+    val sid =  s._2
+    val ppdName = s._1
+    var sender_old = sender
+    // 确定是否用户自己的策略
+    if(strategyMap.get(sid) != None &&  strategyMap.get(sid).get.ppdName == ppdName) {
+      strategyActorRefs(sid) ! PoisonPill
+      strategyActorRefs.remove(sid)
+      // TODO: 从数据库中逻辑删除
 
-    // TODO: 从数据库中逻辑删除
+      sender_old ! Result(0, "")
+    } else {
+      sender_old ! Result(1, "没有这个策略，可能已经被删除")
+    }
   }
 
   /**
@@ -146,10 +150,7 @@ class StrategyPoolActor extends Actor with ActorLogging {
     })
 
     sender ! ss
-
   }
-
-
 }
 
 object StrategyPoolActor {
@@ -158,12 +159,11 @@ object StrategyPoolActor {
   val path = "strategy_pool"
 }
 
-case class SubscribeStrategy(ppdUser: PpdUser, sid: Int)
-case class UnSubscribeStrategy(ppdUser: PpdUser, sid: Int)
-//case class FetchStrategies()
-case class FetchMyStrategies(ppdName: String)
-case class DeleteUserStratgy(ppdName: String, sid: Int)
-case class StrategiesDataArrived()
-
-case class FetchStrategyInfo(ppdName: String, sid: Int)
+//case class SubscribeStrategy(ppdUser: PpdUser, sid: Int)
+//case class UnSubscribeStrategy(ppdUser: PpdUser, sid: Int)
+//case class FetchMyStrategies(ppdName: String)
+//case class DeleteUserStratgy(ppdName: String, sid: Int)
+//case class StrategiesDataArrived()
+//
+//case class FetchStrategyInfo(ppdName: String, sid: Int)
 

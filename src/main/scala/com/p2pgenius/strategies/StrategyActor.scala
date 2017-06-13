@@ -2,7 +2,7 @@ package com.p2pgenius.strategies
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import com.p2pgenius.persistence.{BidLog, PersistAction, PersistActionType, PersisterActor, Strategy}
-import com.p2pgenius.ppdService.{LoanInfo, LoanList}
+import com.p2pgenius.ppdService.{LoanInfo, LoanList, ServiceAction, ServiceActionType}
 import org.json4s.jackson.JsonMethods._
 import org.json4s.{DefaultFormats, Extraction, Formats}
 
@@ -18,20 +18,27 @@ class StrategyActor(strategy: Strategy) extends Actor with ActorLogging{
   val sd: StrategyDesc  = parse(strategy.json).extract[StrategyDesc]
 
   override def receive: Receive = {
-//    case FetchMyStrategies =>
-    case s: SubscribeStrategy =>
-      log.debug("有投资人订阅这个策略%s".format(strategy.name))
-      subscribers += sender    // 加入投资人
-    case s: UnSubscribeStrategy =>
-      log.debug("有投资人退订这个策略%s".format(strategy.name))
+    case ServiceAction(ServiceActionType.SUB_STRATEGY, e: (String, Int)) =>
+      log.debug("有投资人订阅这个策略%s".format(e._1))
+      subscribers += sender
+    case ServiceAction(ServiceActionType.UNSUB_STRATEGY, e: (String, Int)) =>
+      log.debug("有投资人退订这个策略%s".format(e._1))
       subscribers -= sender  // 删除投资人
 
-    case li: LoanInfo =>
+    case ServiceAction(ServiceActionType.CHECK_LOAN, li: LoanInfo) =>
       if(check(li)){
         log.debug("检测借款%d 是否符合策略%s要求".format(li.ListingId, strategy.name))
         subscribers.foreach(f=> f ! LoanInfoWrapper(strategy,li))
         persisRef ! PersistAction(PersistActionType.INSERT_BID, BidLog(None, li.ListingId, "", this.strategy.id.getOrElse(-1), this.strategy.name, 58, simulate = 1))
-      }  // 通知投资人投标xiaix
+      }
+    case ServiceAction(ServiceActionType.CHECK_LOAN, e: LoanList) =>
+
+//    case li: LoanInfo =>
+//      if(check(li)){
+//        log.debug("检测借款%d 是否符合策略%s要求".format(li.ListingId, strategy.name))
+//        subscribers.foreach(f=> f ! LoanInfoWrapper(strategy,li))
+//        persisRef ! PersistAction(PersistActionType.INSERT_BID, BidLog(None, li.ListingId, "", this.strategy.id.getOrElse(-1), this.strategy.name, 58, simulate = 1))
+//      }  // 通知投资人投标xiaix
      case ll: LoanList =>
       log.debug("检测是否符合策略要求")
       //if(strategy.check(ll)) {subscribers.foreach(f=> f ! LoanListWrapper(strategy,ll))}  // 通知投资人投标

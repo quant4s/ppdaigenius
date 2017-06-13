@@ -17,7 +17,7 @@ import scala.concurrent.duration._
 trait PpdRemoteService extends ActorLogging { this: Actor ⇒
 
   val autoLoginUrl = new URL(AUTO_LOGIN_URL)
-  implicit val timeout = Timeout(1 seconds)
+  implicit val timeout = Timeout(2 seconds)
   implicit val formats = DefaultFormats
   val rsaCryptoHelper = new RsaCryptoHelper(PKCSType.PKCS8,SERVER_PUBLIC_KEY, CLIENT_PRIVATED_KEY)
   val connection: HttpURLConnection
@@ -37,14 +37,6 @@ trait PpdRemoteService extends ActorLogging { this: Actor ⇒
 
     urlConnection
   }
-
-//  def send(json: String, accessToken: String, propertyObjects: PropertyObject*): Result = {
-//    send(connection, json, propertyObjects: _*)(accessToken)
-//  }
-//
-//  def send(json: String, propertyObjects: PropertyObject*)(accessToken: String): Result = {
-//    send(connection, json, propertyObjects: _*)(accessToken)
-//  }
 
   def send(httpURLConnection: HttpURLConnection, json: String, accessToken: String, propertyObjects: PropertyObject*): Result= {
     send(httpURLConnection, json, propertyObjects: _*)(accessToken)

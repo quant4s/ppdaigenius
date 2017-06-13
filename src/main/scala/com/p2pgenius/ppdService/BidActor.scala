@@ -20,8 +20,9 @@ class BidActor extends Actor with PpdRemoteService {
   override val connection: HttpURLConnection = createUrlConnection(BID_URL)
 
   override def receive: Receive = {
-    case b: Bid => bid(b)
-    case _ => log.warning("[BidActor]不支持的消息")
+    case PpdRemoteAction(PpdRemoteActionType.BID, e) => bid(e.asInstanceOf[Bid])
+//    case b: Bid => bid(b)
+    case m:Any => log.warning("[BidActor]不支持的消息%s".format(m.toString))
   }
 
   def bid(b: Bid): Unit = {

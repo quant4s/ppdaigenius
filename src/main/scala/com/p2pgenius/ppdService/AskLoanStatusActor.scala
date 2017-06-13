@@ -19,8 +19,7 @@ class AskLoanStatusActor extends PpdRemoteService with Actor{
   override val connection: HttpURLConnection = createUrlConnection(LOAN_STATUS_URL)
 
   override def receive: Receive = {
-    case id: AskLoanStatus => getLoanStatus(id.ids)
-    case ids: List[Long] => getLoanStatus(ids)
+    case PpdRemoteAction(PpdRemoteActionType.ASK_LOAN_LIST_STATUS,e) =>getLoanStatus(e.asInstanceOf[List[Long]])
     case e: Any => log.warning("[AskLoanStatusActor]不支持的消息%s".format(e.toString))
   }
 
@@ -37,13 +36,7 @@ class AskLoanStatusActor extends PpdRemoteService with Actor{
 }
 
 object AskLoanStatusActor{
-  def props() = {
-//    Props(classOf[AskLoanStatus])
-    Props[AskLoanStatusActor].withRouter(RoundRobinRouter(5))
-
-  }
+  def props() = Props[AskLoanStatusActor].withRouter(RoundRobinRouter(5))
 
   val path = "ask_loan_status"
 }
-
-case class AskLoanStatus(ids: List[Long])
